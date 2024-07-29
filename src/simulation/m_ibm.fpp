@@ -30,7 +30,10 @@ module m_ibm
                s_interpolate_image_point, &
                s_compute_levelset, &
                s_find_ghost_points, &
-               s_find_num_ghost_points
+               s_find_num_ghost_points, &
+               s_compute_force, &
+               s_accumulate_force, &
+               s_finite_difference_cd2
     ; public :: s_initialize_ibm_module, &
  s_ibm_setup, &
  s_ibm_correct_state, &
@@ -331,6 +334,8 @@ contains
                            vel_g(q - momxb + 1)/2d0
             end do
         end do
+
+        call s_compute_force(q_prim_vf)
 
     end subroutine s_ibm_correct_state
 
@@ -899,6 +904,111 @@ contains
         end do
 
     end subroutine s_interpolate_image_point
+
+    !> Subroutine to calculate force on an immersed boundary
+    ! Converts surface integral to volume integral via gauss
+    subroutine s_compute_force(q_prim_vf)
+        type(scalar_field), &
+            dimension(sys_size), &
+            intent(in) :: q_prim_vf !< Primitive Variables
+
+        type(ghost_point) :: gp
+        type(ghost_point) :: innerp
+
+        integer :: i
+
+        real(kind(0d0)), dimension(0:num_ibs) :: F
+
+        do i = 1, num_ibs
+            F(i) = 0
+        end do
+
+        do i = 1, num_gps
+            gp = ghost_points(i)
+            call s_accumulate_force(q_prim_vf, gp, F)
+        end do
+
+        do i = 1, num_inner_gps
+            innerp = inner_points(i)
+            call s_accumulate_force(q_prim_vf, innerp, F)
+        end do
+
+        do i=1, num_ibs
+            print *, i, F(i)
+        end do
+
+    end subroutine s_compute_force
+
+    !> subroutine to accumulate force contributions from ghost or inner points
+    subroutine s_accumulate_force(q_prim_vf, gp, F)
+        type(scalar_field), &
+            dimension(sys_size), &
+            intent(in) :: q_prim_vf !< Primitive Variables
+
+        type(ghost_point), intent(in) :: gp
+        real(kind(0d0)), dimension(0:num_ibs), intent(inout) :: F
+
+        integer :: j, k, l
+        integer :: patch_id
+
+        integer, dimension(1:3) :: jkl
+        real(kind(0d0)) :: dpdx, vol
+
+        j = gp%loc(1)
+        k = gp%loc(2)
+        l = gp%loc(3)
+        patch_id = gp%ib_patch_id
+
+        jkl(1) = j
+        jkl(2) = k
+        jkl(3) = l
+
+        ! finite difference: central, 2nd order
+        call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, 1, dpdx)
+
+        vol = dx(j)*dy(k)
+
+        F(patch_id) = F(patch_id) - dpdx*vol
+
+    end subroutine s_accumulate_force
+
+    !> Subroutine to calculate the gradient of a quantity in any direction
+    ! second order central difference
+    subroutine s_finite_difference_cd2(sf, ivar, jkl, ixyz, result)
+        type(scalar_field), &
+            dimension(sys_size), &
+            intent(in) :: sf !< Primitive Variables
+
+        integer, intent(in) :: ivar, ixyz
+        integer, dimension(1:3), intent(in) :: jkl
+        integer, dimension(1:3) :: jklm1, jklp1
+
+        real(kind(0d0)), intent(out) :: result
+
+        real(kind(0d0)) :: sm1, sp1, dx2
+
+        ! index of point at which gradient is to be taken
+        jklm1(1:3) = jkl(1:3)
+        jklp1(1:3) = jkl(1:3)
+
+        ! -1 and +1 indices
+        jklm1(ixyz) = jklm1(ixyz) - 1
+        jklp1(ixyz) = jklp1(ixyz) + 1
+
+        if (ixyz == 1) then
+            dx2 = x_cc(jklp1(ixyz)) - x_cc(jklm1(ixyz))
+        else if (ixyz == 2) then
+            dx2 = y_cc(jklp1(ixyz)) - y_cc(jklm1(ixyz))
+        else
+            dx2 = z_cc(jklp1(ixyz)) - z_cc(jklm1(ixyz))
+        end if
+
+        sm1 = sf(ivar)%sf(jklm1(1), jklm1(2), jklm1(3))
+        sp1 = sf(ivar)%sf(jklp1(1), jklp1(2), jklp1(3))
+
+        result = (sp1 - sm1) / dx2
+
+    end subroutine s_finite_difference_cd2
 
     !>  Subroutine that computes that bubble wall pressure for Gilmore bubbles
     subroutine s_compute_levelset(levelset, levelset_norm)
