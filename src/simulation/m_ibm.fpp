@@ -904,7 +904,9 @@ contains
     end subroutine s_interpolate_image_point
 
     !> Subroutine to calculate force on an immersed boundary
-    ! Converts surface integral to volume integral via gauss
+      !! Converts surface integral to volume integral via gauss
+      !! @param q_prim_vf primitive variables
+      !! @param F output force vector (ixyz, i_ib)
     subroutine s_ibm_compute_forces(q_prim_vf, F)
         type(scalar_field), &
             dimension(sys_size), &
@@ -950,6 +952,9 @@ contains
     end subroutine s_ibm_compute_forces
 
     !> subroutine to accumulate force contributions from ghost or inner points
+      !! @pararm q_prim_vf is the primitive variables
+      !! @param is the ghost point at which to accumulate force. Can also be an inner point.
+      !! @param F has intent(inout). The contribution from this ghost point is added to F.
     subroutine s_accumulate_force(q_prim_vf, gp, F)
         type(scalar_field), &
             dimension(sys_size), &
@@ -984,7 +989,12 @@ contains
     end subroutine s_accumulate_force
 
     !> Subroutine to calculate the gradient of a quantity in any direction
-    ! second order central difference
+       !! second order central difference
+       !! @param sf scalar field (e.g. primitive variables)
+       !! @param ivar variable in the scalar field for which to compute the derivative
+       !! @param jkl is the spatial index of the point in sf at which to calculate the derivative
+       !! @param ixyz which spatial gradiant to take. e.g. ixyz=1 => d/dx
+       !! @param result is the output scalar
     subroutine s_finite_difference_cd2(sf, ivar, jkl, ixyz, result)
         type(scalar_field), &
             dimension(sys_size), &
