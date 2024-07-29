@@ -285,7 +285,9 @@ contains
             call s_open_run_time_information_file()
         end if
 
-        call s_open_ibm_force_files()
+        if (ib) then
+            call s_open_ibm_force_files()
+        end if
 
     end subroutine s_initialize_time_steppers_module
 
@@ -603,8 +605,9 @@ contains
             call s_time_step_cycling(t_step)
         end if
 
-        call s_write_ibm_force_files(q_prim_vf)
-
+        if (ib) then
+            call s_write_ibm_force_files(q_prim_vf)
+        end if
 
         if (t_step == t_step_stop) return
 
@@ -1031,7 +1034,9 @@ contains
             call s_close_run_time_information_file()
         end if
 
-        call s_close_ibm_force_files()
+        if (ib) then
+            call s_close_ibm_force_files()
+        end if
 
 
     end subroutine s_finalize_time_steppers_module
