@@ -31,12 +31,12 @@ module m_ibm
                s_compute_levelset, &
                s_find_ghost_points, &
                s_find_num_ghost_points, &
-               s_compute_force, &
                s_accumulate_force, &
                s_finite_difference_cd2
     ; public :: s_initialize_ibm_module, &
  s_ibm_setup, &
  s_ibm_correct_state, &
+ s_ibm_compute_forces, &
  s_finalize_ibm_module
 
     type(integer_field), public :: ib_markers
@@ -334,8 +334,6 @@ contains
                            vel_g(q - momxb + 1)/2d0
             end do
         end do
-
-        call s_compute_force(q_prim_vf)
 
     end subroutine s_ibm_correct_state
 
@@ -907,20 +905,24 @@ contains
 
     !> Subroutine to calculate force on an immersed boundary
     ! Converts surface integral to volume integral via gauss
-    subroutine s_compute_force(q_prim_vf)
+    subroutine s_ibm_compute_forces(q_prim_vf, F)
         type(scalar_field), &
             dimension(sys_size), &
             intent(in) :: q_prim_vf !< Primitive Variables
 
+        !real(kind(0d0)), dimension(1:num_ibs), intent(inout) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(out) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs) :: Ftmp
+
         type(ghost_point) :: gp
         type(ghost_point) :: innerp
 
-        integer :: i
-
-        real(kind(0d0)), dimension(0:num_ibs) :: F
+        integer :: i, j, ierr
 
         do i = 1, num_ibs
-            F(i) = 0
+            do j=1,3
+                F(j, i) = 0
+            end do
         end do
 
         do i = 1, num_gps
@@ -933,11 +935,19 @@ contains
             call s_accumulate_force(q_prim_vf, innerp, F)
         end do
 
-        do i=1, num_ibs
-            print *, i, F(i)
+        ! copy and sum reduce over all processes
+        do i = 1, num_ibs
+            do j=1,3
+                Ftmp(j, i) = F(j, i)
+            end do
         end do
 
-    end subroutine s_compute_force
+        ! do all reduce so that the forces will be available on every process
+        ! for moving IBM possibly in the future
+        call MPI_ALLREDUCE(Ftmp, F, 3*(num_ibs+1), MPI_DOUBLE_PRECISION, &
+                           MPI_SUM, MPI_COMM_WORLD, ierr)
+
+    end subroutine s_ibm_compute_forces
 
     !> subroutine to accumulate force contributions from ghost or inner points
     subroutine s_accumulate_force(q_prim_vf, gp, F)
@@ -946,9 +956,9 @@ contains
             intent(in) :: q_prim_vf !< Primitive Variables
 
         type(ghost_point), intent(in) :: gp
-        real(kind(0d0)), dimension(0:num_ibs), intent(inout) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(inout) :: F
 
-        integer :: j, k, l
+        integer :: j, k, l, ixyz
         integer :: patch_id
 
         integer, dimension(1:3) :: jkl
@@ -963,12 +973,13 @@ contains
         jkl(2) = k
         jkl(3) = l
 
-        ! finite difference: central, 2nd order
-        call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, 1, dpdx)
-
         vol = dx(j)*dy(k)
 
-        F(patch_id) = F(patch_id) - dpdx*vol
+        do ixyz=1,2+min(1,p)
+            ! finite difference: central, 2nd order
+            call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, ixyz, dpdx)
+            F(ixyz, patch_id) = F(ixyz, patch_id) - dpdx*vol
+        end do
 
     end subroutine s_accumulate_force
 
