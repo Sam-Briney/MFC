@@ -904,7 +904,7 @@ contains
     end subroutine s_interpolate_image_point
 
     !> Subroutine to calculate force on an immersed boundary
-      !! Converts surface integral to volume integral via gauss
+      !! Converts surface integral to volume integral via gauss thm.
       !! @param q_prim_vf primitive variables
       !! @param F output force vector (ixyz, i_ib)
     subroutine s_ibm_compute_forces(q_prim_vf, F)
@@ -921,17 +921,20 @@ contains
 
         integer :: i, j, ierr
 
+        ! initialize force variable
         do i = 1, num_ibs
             do j=1,3
                 F(j, i) = 0
             end do
         end do
 
+        ! get contribution from ghost points
         do i = 1, num_gps
             gp = ghost_points(i)
             call s_accumulate_force(q_prim_vf, gp, F)
         end do
 
+        ! get contribution from inner points
         do i = 1, num_inner_gps
             innerp = inner_points(i)
             call s_accumulate_force(q_prim_vf, innerp, F)
@@ -980,6 +983,7 @@ contains
 
         vol = dx(j)*dy(k)
 
+        ! pressure contribution
         do ixyz=1,2+min(1,p)
             ! finite difference: central, 2nd order
             call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, ixyz, dpdx)
@@ -1006,7 +1010,7 @@ contains
 
         real(kind(0d0)), intent(out) :: result
 
-        real(kind(0d0)) :: sm1, sp1, dx2
+        real(kind(0d0)) :: s, sm1, sp1, dxm, dxp
 
         ! index of point at which gradient is to be taken
         jklm1(1:3) = jkl(1:3)
@@ -1016,18 +1020,25 @@ contains
         jklm1(ixyz) = jklm1(ixyz) - 1
         jklp1(ixyz) = jklp1(ixyz) + 1
 
+        ! dx in + and - directions (not generally equal)
         if (ixyz == 1) then
-            dx2 = x_cc(jklp1(ixyz)) - x_cc(jklm1(ixyz))
+            dxm = x_cc(jklm1(ixyz)) - x_cc(jkl(ixyz))
+            dxp = x_cc(jklp1(ixyz)) - x_cc(jkl(ixyz))
         else if (ixyz == 2) then
-            dx2 = y_cc(jklp1(ixyz)) - y_cc(jklm1(ixyz))
+            dxm = y_cc(jklm1(ixyz)) - y_cc(jkl(ixyz))
+            dxp = y_cc(jklp1(ixyz)) - y_cc(jkl(ixyz))
         else
-            dx2 = z_cc(jklp1(ixyz)) - z_cc(jklm1(ixyz))
+            dxm = z_cc(jklm1(ixyz)) - z_cc(jkl(ixyz))
+            dxp = z_cc(jklp1(ixyz)) - z_cc(jkl(ixyz))
         end if
+
+        s = sf(ivar)%sf(jkl(1), jkl(2), jkl(3))
 
         sm1 = sf(ivar)%sf(jklm1(1), jklm1(2), jklm1(3))
         sp1 = sf(ivar)%sf(jklp1(1), jklp1(2), jklp1(3))
 
-        result = (sp1 - sm1) / dx2
+        result = (dxm*dxm*sp1 + (dxp*dxp - dxm*dxm)*s - dxp*dxp*sm1) &
+                 / (dxp*dxm*(dxm - dxp))
 
     end subroutine s_finite_difference_cd2
 
