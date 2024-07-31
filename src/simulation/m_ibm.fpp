@@ -982,11 +982,15 @@ contains
         type(ghost_point), intent(in) :: gp
         real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(inout) :: F
 
-        integer :: j, k, l, ixyz
+        integer :: j, k, l, ixyz, ii, jj
         integer :: patch_id
 
         integer, dimension(1:3) :: jkl
         real(kind(0d0)) :: dpdx, vol
+
+        integer, dimension(1:3) :: jklm1, jklp1
+        real(kind(0d0)), dimension(1:3, 1:3) :: tau, taum, taup
+        real(kind(0d0)) :: grad_tau, dxm, dxp
 
         j = gp%loc(1)
         k = gp%loc(2)
@@ -1004,6 +1008,37 @@ contains
             ! finite difference: central, 2nd order
             call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, ixyz, dpdx)
             F(ixyz, patch_id) = F(ixyz, patch_id) - dpdx*vol
+        end do
+
+        ! viscous contribution
+        call s_compute_tau_Re(q_prim_vf, jkl, tau) ! viscous stress tensor at center
+
+        do ixyz=1,num_dims ! direction in which to take gradient
+            ! index of point at which gradient is to be taken
+            jklm1(1:3) = jkl(1:3)
+            jklp1(1:3) = jkl(1:3)
+
+            ! -1 and +1 indices
+            jklm1(ixyz) = jklm1(ixyz) - 1
+            jklp1(ixyz) = jklp1(ixyz) + 1
+
+            ! viscous stress tensors at ...
+            call s_compute_tau_Re(q_prim_vf, jklm1, taum) ! minus 1 position
+            call s_compute_tau_Re(q_prim_vf, jklp1, taup) ! plus 1 position
+
+            call s_compute_dx_cd2(jkl, ixyz, dxm, dxp)
+
+            ! compute gradient of stress tensor
+            !F_{j} = d (tau_{ij})/dx_{i} * volume
+            do ii=1,num_dims
+                do jj=1,num_dims
+                    call s_finite_difference_cd2_formula(taum(ii,jj), tau(ii,jj), &
+                        taup(ii,jj), dxm, dxp, grad_tau)
+
+                    F(jj, patch_id) = F(jj, patch_id) + grad_tau*vol
+                end do
+            end do
+
         end do
 
     end subroutine s_accumulate_force
@@ -1036,7 +1071,6 @@ contains
         jklm1(ixyz) = jklm1(ixyz) - 1
         jklp1(ixyz) = jklp1(ixyz) + 1
 
-
         call s_compute_dx_cd2(jkl, ixyz, dxm, dxp)
 
         s = sf(ivar)%sf(jkl(1), jkl(2), jkl(3))
@@ -1044,8 +1078,7 @@ contains
         sm1 = sf(ivar)%sf(jklm1(1), jklm1(2), jklm1(3))
         sp1 = sf(ivar)%sf(jklp1(1), jklp1(2), jklp1(3))
 
-        result = (dxm*dxm*sp1 + (dxp*dxp - dxm*dxm)*s - dxp*dxp*sm1) &
-                 / (dxp*dxm*(dxm - dxp))
+        call s_finite_difference_cd2_formula(sm1, s, sp1, dxm, dxp, result)
 
     end subroutine s_finite_difference_cd2
 
@@ -1066,6 +1099,15 @@ contains
         end if
 
     end subroutine s_compute_dx_cd2
+
+    subroutine s_finite_difference_cd2_formula(sm1, s, sp1, dxm, dxp, result)
+        real(kind(0d0)), intent(in) :: sm1, s, sp1, dxm, dxp
+        real(kind(0d0)), intent(out) :: result
+
+        result = (dxm*dxm*sp1 + (dxp*dxp - dxm*dxm)*s - dxp*dxp*sm1) &
+                 / (dxp*dxm*(dxm - dxp))
+
+    end subroutine s_finite_difference_cd2_formula
 
     subroutine s_compute_tau_Re(q_prim_vf, jkl, tau_Re)
         type(scalar_field), &
