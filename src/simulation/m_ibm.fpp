@@ -1036,17 +1036,8 @@ contains
         jklm1(ixyz) = jklm1(ixyz) - 1
         jklp1(ixyz) = jklp1(ixyz) + 1
 
-        ! dx in + and - directions (not generally equal)
-        if (ixyz == 1) then
-            dxm = x_cc(jklm1(ixyz)) - x_cc(jkl(ixyz))
-            dxp = x_cc(jklp1(ixyz)) - x_cc(jkl(ixyz))
-        else if (ixyz == 2) then
-            dxm = y_cc(jklm1(ixyz)) - y_cc(jkl(ixyz))
-            dxp = y_cc(jklp1(ixyz)) - y_cc(jkl(ixyz))
-        else
-            dxm = z_cc(jklm1(ixyz)) - z_cc(jkl(ixyz))
-            dxp = z_cc(jklp1(ixyz)) - z_cc(jkl(ixyz))
-        end if
+
+        call s_compute_dx_cd2(jkl, ixyz, dxm, dxp)
 
         s = sf(ivar)%sf(jkl(1), jkl(2), jkl(3))
 
@@ -1057,6 +1048,24 @@ contains
                  / (dxp*dxm*(dxm - dxp))
 
     end subroutine s_finite_difference_cd2
+
+    subroutine s_compute_dx_cd2(jkl, ixyz, dxm, dxp)
+        integer, dimension(1:3), intent(in) :: jkl
+        integer, intent(in) :: ixyz
+        real(kind(0d0)), intent(out) :: dxm, dxp
+
+        if (ixyz == 1) then
+            dxm = x_cc(jkl(ixyz)-1) - x_cc(jkl(ixyz))
+            dxp = x_cc(jkl(ixyz)+1) - x_cc(jkl(ixyz))
+        else if (ixyz == 2) then
+            dxm = y_cc(jkl(ixyz)-1) - y_cc(jkl(ixyz))
+            dxp = y_cc(jkl(ixyz)+1) - y_cc(jkl(ixyz))
+        else
+            dxm = z_cc(jkl(ixyz)-1) - z_cc(jkl(ixyz))
+            dxp = z_cc(jkl(ixyz)+1) - z_cc(jkl(ixyz))
+        end if
+
+    end subroutine s_compute_dx_cd2
 
     subroutine s_compute_tau_Re(q_prim_vf, jkl, tau_Re)
         type(scalar_field), &
