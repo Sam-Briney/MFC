@@ -49,6 +49,9 @@ module m_ibm
     @:CRAY_DECLARE_GLOBAL(type(ghost_point), dimension(:), inner_points)
 
     !$acc declare link(levelset, levelset_norm, ghost_points, inner_points)
+
+    @:CRAY_DECLARE_GLOBAL(real(kind(0d0)), dimension(:, :), Res_viscous_ibm)
+    !$acc declare link(Res_viscous_ibm)
 #else
 
     !! Marker for solid cells. 0 if liquid, the patch id of its IB if solid
@@ -61,6 +64,9 @@ module m_ibm
     !! Matrix of normal vector to IB
 
     !$acc declare create(levelset, levelset_norm, ghost_points, inner_points)
+
+    real(kind(0d0)), allocatable, dimension(:, :) :: Res_viscous_ibm
+    !$acc declare create(Re_viscous)
 #endif
 
     integer :: gp_layers !< Number of ghost point layers
@@ -72,6 +78,7 @@ contains
 
     !>  Initialize IBM module
     subroutine s_initialize_ibm_module
+        integer :: i, j
 
         gp_layers = 3
 
@@ -89,6 +96,15 @@ contains
         @:ALLOCATE_GLOBAL(levelset_norm(0:m, 0:n, 0:p, num_ibs, 3))
 
         !$acc enter data copyin(gp_layers, num_gps, num_inner_gps)
+
+        @:ALLOCATE_GLOBAL(Res_viscous_ibm(1:2, 1:maxval(Re_size)))
+
+        do i = 1, 2
+            do j = 1, Re_size(i)
+                Res_viscous_ibm(i, j) = fluid_pp(Re_idx(i, j))%Re(i)
+            end do
+        end do
+        !$acc update device(Res_viscous_ibm)
 
     end subroutine s_initialize_ibm_module
 
@@ -984,7 +1000,7 @@ contains
         vol = dx(j)*dy(k)
 
         ! pressure contribution
-        do ixyz=1,2+min(1,p)
+        do ixyz=1,num_dims
             ! finite difference: central, 2nd order
             call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, ixyz, dpdx)
             F(ixyz, patch_id) = F(ixyz, patch_id) - dpdx*vol
@@ -1041,6 +1057,97 @@ contains
                  / (dxp*dxm*(dxm - dxp))
 
     end subroutine s_finite_difference_cd2
+
+    subroutine s_compute_tau_Re(q_prim_vf, jkl, tau_Re)
+        type(scalar_field), &
+            dimension(sys_size), &
+            intent(in) :: q_prim_vf
+
+
+        integer, dimension(3), intent(in) :: jkl
+
+        real(kind(0d0)), dimension(3, 3), intent(out) :: tau_Re
+
+        integer :: i, j, q
+        real(kind(0d0)), dimension(num_fluids) :: alpha_visc
+        real(kind(0d0)), dimension(2) :: Re_visc
+        real(kind(0d0)) :: alpha_visc_sum, mu
+        real(kind(0d0)), dimension(3, 3) :: duidxj ! velocity gradient tensor
+        real(kind(0d0)), dimension(3, 3) :: S ! symmetric part of strain rate tensor
+        real(kind(0d0)) :: divu ! divergence of velocity
+
+        ! calculate viscosity
+        do i = 1, num_fluids
+            if (bubbles .and. num_fluids == 1) then
+                alpha_visc(i) = 1d0 - q_prim_vf(E_idx + i)%sf(jkl(1), jkl(2), jkl(3))
+            else
+                alpha_visc(i) = q_prim_vf(E_idx + i)%sf(jkl(1), jkl(2), jkl(3))
+            end if
+        end do
+
+        if (mpp_lim) then
+            !!$acc loop seq
+            do i = 1, num_fluids
+                alpha_visc(i) = min(max(0d0, alpha_visc(i)), 1d0)
+                alpha_visc_sum = alpha_visc_sum + alpha_visc(i)
+            end do
+
+            alpha_visc = alpha_visc/max(alpha_visc_sum, sgm_eps)
+
+        end if
+
+        if (any(Re_size > 0)) then
+            !!$acc loop seq
+            do i = 1, 2
+                Re_visc(i) = dflt_real
+
+                if (Re_size(i) > 0) Re_visc(i) = 0d0
+                !!$acc loop seq
+                do q = 1, Re_size(i)
+                    Re_visc(i) = alpha_visc(Re_idx(i, q))/Res_viscous_ibm(i, q) &
+                                 + Re_visc(i)
+                end do
+
+                Re_visc(i) = 1d0/max(Re_visc(i), sgm_eps)
+
+            end do
+        end if
+
+        mu = 1d0/max(Re_visc(1), sgm_eps)
+
+        ! now calculate velocity gradient tensor
+        duidxj(1:3, 1:3) = 0d0
+        do i=1,num_dims
+            do j=1,num_dims
+                call s_finite_difference_cd2(q_prim_vf, momxb+(i-1), jkl, j, duidxj(i, j))
+            end do
+        end do
+
+        ! calculate S
+        S(1:3, 1:3) = 0d0
+        do i=1,num_dims
+            do j=1,num_dims
+                S(i, j) = 0.5d0*(duidxj(i, j) + duidxj(j, i))
+            end do
+        end do
+
+        ! calculate divergence
+        divu = 0d0
+        do i=1,num_dims
+            divu = divu + duidxj(i, i)
+        end do
+
+        ! calculate stress tensor
+        tau_Re(1:3, 1:3) = 0d0
+        do i=1,num_dims
+            tau_Re(i, i) = -2d0/3d0*mu*divu
+
+            do j=1,num_dims
+                tau_Re(i, j) = tau_Re(i, j) + 2d0*mu*S(i, j)
+            end do
+        end do
+
+    end subroutine s_compute_tau_Re
 
     !>  Subroutine that computes that bubble wall pressure for Gilmore bubbles
     subroutine s_compute_levelset(levelset, levelset_norm)
