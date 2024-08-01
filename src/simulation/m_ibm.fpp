@@ -1020,7 +1020,7 @@ contains
         if (num_dims == 3) then
             vol = vol*dz(l)
         else if (cyl_coord) then
-            vol = vol*2*pi*y_cc(k)
+            vol = vol*2.0d0*pi*y_cc(k)
         end if
 
         ! pressure contribution
