@@ -1017,6 +1017,12 @@ contains
 
         vol = dx(j)*dy(k)
 
+        if (num_dims == 3) then
+            vol = vol*dz(l)
+        else if (cyl_coord) then
+            vol = vol*2*pi*y_cc(k)
+        end if
+
         ! pressure contribution
         do ixyz=1,num_dims
             ! finite difference: central, 2nd order
