@@ -1670,15 +1670,15 @@ contains
             dimension(sys_size), &
             intent(in) :: q_prim_vf !< Primitive Variables
 
-        real(kind(0d0)), dimension(1:3, 0:num_ibs) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs) :: Fp, Fv
 
         integer :: i
 
-        call s_ibm_compute_forces(q_prim_vf, F)
+        call s_ibm_compute_forces(q_prim_vf, Fp, Fv)
 
         do i = 1, num_ibs
-            write(i + 1000, '(4(E23.15))') &
-                mytime, F(1:3, i)
+            write(i + 1000, '(7(E23.15))') &
+                mytime, Fp(1:3, i), Fv(1:3, i)
         end do
 
     end subroutine s_write_ibm_force_files

@@ -922,14 +922,15 @@ contains
     !> Subroutine to calculate force on an immersed boundary
       !! Converts surface integral to volume integral via gauss thm.
       !! @param q_prim_vf primitive variables
-      !! @param F output force vector (ixyz, i_ib)
-    subroutine s_ibm_compute_forces(q_prim_vf, F)
+      !! @param Fp output pressure force vector (ixyz, i_ib)
+      !! @param Fv output viscous force vector (ixyz, i_ib)
+    subroutine s_ibm_compute_forces(q_prim_vf, Fp, Fv)
         type(scalar_field), &
             dimension(sys_size), &
             intent(in) :: q_prim_vf !< Primitive Variables
 
         !real(kind(0d0)), dimension(1:num_ibs), intent(inout) :: F
-        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(out) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(out) :: Fp, Fv
         real(kind(0d0)), dimension(1:3, 0:num_ibs) :: Ftmp
 
         type(ghost_point) :: gp
@@ -940,32 +941,44 @@ contains
         ! initialize force variable
         do i = 1, num_ibs
             do j=1,3
-                F(j, i) = 0
+                Fp(j, i) = 0
+                Fv(j, i) = 0
             end do
         end do
 
         ! get contribution from ghost points
         do i = 1, num_gps
             gp = ghost_points(i)
-            call s_accumulate_force(q_prim_vf, gp, F)
+            call s_accumulate_force(q_prim_vf, gp, Fp, Fv)
         end do
 
         ! get contribution from inner points
         do i = 1, num_inner_gps
             innerp = inner_points(i)
-            call s_accumulate_force(q_prim_vf, innerp, F)
+            call s_accumulate_force(q_prim_vf, innerp, Fp, Fv)
         end do
 
         ! copy and sum reduce over all processes
+        ! pressure component
         do i = 1, num_ibs
             do j=1,3
-                Ftmp(j, i) = F(j, i)
+                Ftmp(j, i) = Fp(j, i)
             end do
         end do
 
         ! do all reduce so that the forces will be available on every process
         ! for moving IBM possibly in the future
-        call MPI_ALLREDUCE(Ftmp, F, 3*(num_ibs+1), MPI_DOUBLE_PRECISION, &
+        call MPI_ALLREDUCE(Ftmp, Fp, 3*(num_ibs+1), MPI_DOUBLE_PRECISION, &
+                           MPI_SUM, MPI_COMM_WORLD, ierr)
+
+        ! viscous component
+        do i = 1, num_ibs
+            do j=1,3
+                Ftmp(j, i) = Fv(j, i)
+            end do
+        end do
+
+        call MPI_ALLREDUCE(Ftmp, Fv, 3*(num_ibs+1), MPI_DOUBLE_PRECISION, &
                            MPI_SUM, MPI_COMM_WORLD, ierr)
 
     end subroutine s_ibm_compute_forces
@@ -973,14 +986,15 @@ contains
     !> subroutine to accumulate force contributions from ghost or inner points
       !! @pararm q_prim_vf is the primitive variables
       !! @param is the ghost point at which to accumulate force. Can also be an inner point.
-      !! @param F has intent(inout). The contribution from this ghost point is added to F.
-    subroutine s_accumulate_force(q_prim_vf, gp, F)
+      !! @param Fp has intent(inout). The contribution from this ghost point is added to Fp. Pressure drag.
+      !! @param Fv has intent(inout). The contribution from this ghost point is added to Fv. Viscous drag.
+    subroutine s_accumulate_force(q_prim_vf, gp, Fp, Fv)
         type(scalar_field), &
             dimension(sys_size), &
             intent(in) :: q_prim_vf !< Primitive Variables
 
         type(ghost_point), intent(in) :: gp
-        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(inout) :: F
+        real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(inout) :: Fp, Fv
 
         integer :: j, k, l, ixyz, ii, jj
         integer :: patch_id
@@ -1007,7 +1021,7 @@ contains
         do ixyz=1,num_dims
             ! finite difference: central, 2nd order
             call s_finite_difference_cd2(q_prim_vf, E_idx, jkl, ixyz, dpdx)
-            F(ixyz, patch_id) = F(ixyz, patch_id) - dpdx*vol
+            Fp(ixyz, patch_id) = Fp(ixyz, patch_id) - dpdx*vol
         end do
 
         ! viscous contribution
@@ -1035,7 +1049,7 @@ contains
                     call s_finite_difference_cd2_formula(taum(ii,jj), tau(ii,jj), &
                         taup(ii,jj), dxm, dxp, grad_tau)
 
-                    F(jj, patch_id) = F(jj, patch_id) + grad_tau*vol
+                    Fv(jj, patch_id) = Fv(jj, patch_id) + grad_tau*vol
                 end do
             end do
 
