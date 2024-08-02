@@ -1208,6 +1208,12 @@ contains
             divu = divu + duidxj(i, i)
         end do
 
+        ! account for cylindrical coordinates
+        ! 2D ONLY
+        if (cyl_coord) then
+            divu = divu + q_prim_vf(momxb + 1)%sf(jkl(1), jkl(2), jkl(3)) / y_cc(jkl(2))
+        end if
+
         ! calculate stress tensor
         tau_Re(1:3, 1:3) = 0d0
         do i=1,num_dims
