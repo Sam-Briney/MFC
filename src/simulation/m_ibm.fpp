@@ -1144,7 +1144,7 @@ contains
         integer :: i, j, q
         real(kind(0d0)), dimension(num_fluids) :: alpha_visc
         real(kind(0d0)), dimension(2) :: Re_visc
-        real(kind(0d0)) :: alpha_visc_sum, mu
+        real(kind(0d0)) :: alpha_visc_sum
         real(kind(0d0)), dimension(3, 3) :: duidxj ! velocity gradient tensor
         real(kind(0d0)), dimension(3, 3) :: S ! symmetric part of strain rate tensor
         real(kind(0d0)) :: divu ! divergence of velocity
@@ -1186,8 +1186,6 @@ contains
             end do
         end if
 
-        mu = 1d0/max(Re_visc(1), sgm_eps)
-
         ! now calculate velocity gradient tensor
         duidxj(1:3, 1:3) = 0d0
         do i=1,num_dims
@@ -1219,12 +1217,12 @@ contains
         ! calculate stress tensor
         do i=1,num_dims
             do j=1,num_dims
-                tau_Re(i, j) = 2d0*mu*S(i, j)
+                tau_Re(i, j) = 2d0*S(i, j) / Re_visc(1)
             end do
         end do
 
         do i=1,num_dims
-            tau_Re(i, i) = tau_Re(i, i) - 2d0/3d0*mu*divu
+            tau_Re(i, i) = tau_Re(i, i) - 2d0/3d0*divu / Re_visc(1)
         end do
 
     end subroutine s_compute_tau_Re
