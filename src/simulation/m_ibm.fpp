@@ -1061,6 +1061,10 @@ contains
 
         end do
 
+        if (cyl_coord) then
+            Fv(1, patch_id) = Fv(1, patch_id) + tau(2, 1) / y_cc(k) * vol
+        end if
+
     end subroutine s_accumulate_force
 
     !> Subroutine to calculate the gradient of a quantity in any direction
