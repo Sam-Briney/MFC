@@ -996,7 +996,7 @@ contains
         type(ghost_point), intent(in) :: gp
         real(kind(0d0)), dimension(1:3, 0:num_ibs), intent(inout) :: Fp, Fv
 
-        integer :: j, k, l, ixyz, ii, jj
+        integer :: j, k, l, ixyz, jj
         integer :: patch_id
 
         integer, dimension(1:3) :: jkl
@@ -1050,13 +1050,11 @@ contains
 
             ! compute gradient of stress tensor
             !F_{j} = d (tau_{ij})/dx_{i} * volume
-            do ii=1,num_dims
-                do jj=1,num_dims
-                    call s_finite_difference_cd2_formula(taum(ii,jj), tau(ii,jj), &
-                        taup(ii,jj), dxm, dxp, grad_tau)
+            do jj=1,num_dims
+                call s_finite_difference_cd2_formula(taum(ixyz,jj), tau(ixyz,jj), &
+                    taup(ixyz,jj), dxm, dxp, grad_tau)
 
-                    Fv(jj, patch_id) = Fv(jj, patch_id) + grad_tau*vol
-                end do
+                Fv(jj, patch_id) = Fv(jj, patch_id) + grad_tau*vol
             end do
 
         end do
