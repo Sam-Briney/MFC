@@ -1217,13 +1217,14 @@ contains
         end if
 
         ! calculate stress tensor
-        tau_Re(1:3, 1:3) = 0d0
         do i=1,num_dims
-            tau_Re(i, i) = -2d0/3d0*mu*divu
-
             do j=1,num_dims
-                tau_Re(i, j) = tau_Re(i, j) + 2d0*mu*S(i, j)
+                tau_Re(i, j) = 2d0*mu*S(i, j)
             end do
+        end do
+
+        do i=1,num_dims
+            tau_Re(i, i) = tau_Re(i, i) - 2d0/3d0*mu*divu
         end do
 
     end subroutine s_compute_tau_Re
